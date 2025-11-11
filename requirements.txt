@@ -1,0 +1,8 @@
+jupyterlab
+ipykernel
+pandas
+seaborn
+matplotlib
+sqlalchemy
+rpy2
+pyarrow
