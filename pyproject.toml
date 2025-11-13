@@ -1,0 +1,20 @@
+[project]
+name = "learncli"
+version = "0.1"
+authors = [
+  {name = "Cato", email = "yangcymbus@outlook.com"},
+]
+description = "CLI for AI modeling"
+readme = "README.md"
+requires-python = ">=3.8"
+
+# Translates the install_requires=['Click'] from setup.py
+dependencies = [
+    "click",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[project.scripts]
+aicli = "aicli:aicli"

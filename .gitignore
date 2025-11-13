@@ -1,2 +1,8 @@
 .venv/
 .ipynb_checkpoints/
+
+# Pythone Bytecode cache from building CLI
+__pycache__/
+
+# Packaging metadata
+*.egg-info/
