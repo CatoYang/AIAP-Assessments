@@ -1,195 +1,140 @@
-# src/commands/data_loader.py
-from abc import ABC, abstractmethod
+# src/commands/data_validation.py
+
+import sys
 from pathlib import Path
-import sqlite3
-import importlib
-
-import pandas as pd
 import click
-
-# --- Base Configuration -----------------------------------------------------------
-# Define base path relative to the project root
-BASE_PATH = Path(__file__).resolve().parent.parent.parent / "data"
-
-# --- Base class --------------------------------------------------------------
-
-class BaseLoader(ABC):
-    """Abstract base class for file loaders."""
-    extensions: tuple[str, ...] = ()
-
-    def __init__(self, filename: str):
-        # Convert to Path and resolve relative to BASE_PATH if needed
-        path = Path(filename)
-        if not path.is_absolute():
-            path = BASE_PATH / path
-        self.path = path.resolve()
-
-        if not self.path.exists():
-            raise FileNotFoundError(f"Data file not found: {self.path}")
-
-    @abstractmethod
-    def load(self) -> pd.DataFrame:
-        """Load the file and return a pandas DataFrame."""
-        pass
+import pandas as pd
+import pandas.testing as tm
 
 
-# --- Subclasses --------------------------------------------------------------
-
-class CSVLoader(BaseLoader):
-    extensions = (".csv",)
-
-    def load(self) -> pd.DataFrame:
-        return pd.read_csv(self.path)
+SUPPORTED_EXTS = {".feather", ".fth", ".csv", ".parquet"}
 
 
-class ExcelLoader(BaseLoader):
-    extensions = (".xls", ".xlsx")
+def _resolve_path(path_str: str) -> Path:
+    p = Path(path_str)
+    if p.exists():
+        return p
 
-    def load(self) -> pd.DataFrame:
-        return pd.read_excel(self.path)
+    data_path = Path("data") / path_str
+    if data_path.exists():
+        return data_path
 
-
-class JSONLoader(BaseLoader):
-    extensions = (".json",)
-
-    def load(self) -> pd.DataFrame:
-        try:
-            return pd.read_json(self.path)
-        except ValueError:
-            return pd.read_json(self.path, lines=True)
+    raise click.ClickException(
+        f"File not found: {path_str} (also tried {data_path})"
+    )
 
 
-class ParquetLoader(BaseLoader):
-    extensions = (".parquet",)
-
-    def load(self) -> pd.DataFrame:
-        return pd.read_parquet(self.path)
-
-
-class FeatherLoader(BaseLoader):
-    extensions = (".feather",)
-
-    def load(self) -> pd.DataFrame:
-        return pd.read_feather(self.path)
-
-
-class SQLiteLoader(BaseLoader):
-    extensions = (".db", ".sqlite", ".sqlite3")
-
-    def __init__(self, filename: str, table: str | None = None):
-        super().__init__(filename)
-        self.table = table
-
-    def load(self) -> pd.DataFrame:
-        if self.table is None:
-            raise ValueError("SQLiteLoader requires a table name. Pass it when instantiating.")
-
-        conn = sqlite3.connect(self.path)
-        try:
-            df = pd.read_sql_query(f"SELECT * FROM {self.table}", conn)
-        finally:
-            conn.close()
-        return df
-
-
-# --- Factory to select the right subclass -----------------------------------
-
-def get_loader_for(path: Path) -> BaseLoader:
+def _load_table(path: Path) -> pd.DataFrame:
     ext = path.suffix.lower()
-    for cls in BaseLoader.__subclasses__():
-        if ext in cls.extensions:
-            # BaseLoader will resolve relative to BASE_PATH if needed
-            return cls(str(path))
-    raise ValueError(f"No loader available for extension {ext}")
+    if ext in {".feather", ".fth"}:
+        return pd.read_feather(path)
+    if ext == ".csv":
+        return pd.read_csv(path)
+    if ext == ".parquet":
+        return pd.read_parquet(path)
+
+    raise click.ClickException(
+        f"Unsupported file type '{ext}'. Supported: {SUPPORTED_EXTS}"
+    )
 
 
-# --- Click command: load & clean & save as feather --------------------------
-
-@click.command(name="load-clean")
-@click.argument("filename")
-@click.argument("cleaning_module")
-@click.option(
-    "--table",
-    "-t",
-    help="Table name for SQLite databases (.db, .sqlite, .sqlite3).",
-)
-@click.option(
-    "--out-dir",
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
-    default=BASE_PATH / "intermediate",
-    show_default=True,
-    help="Directory to write the cleaned feather file into.",
-)
-def load_clean(filename: str, cleaning_module: str, table: str | None, out_dir: Path) -> None:
+@click.command(name="validate")
+@click.argument("file1")
+@click.argument("file2")
+@click.option("--sample", "-s", default=10, show_default=True,
+              help="Number of differing rows to display.")
+def validate_command(file1: str, file2: str, sample: int):
     """
-    Load a raw data FILE, apply a cleaning script, and save as a Feather file.
-
-    FILENAME: raw data file (relative to project 'data/' or an absolute path)
-    CLEANING_MODULE: name of a module in 'src/cleaning/' that defines clean(df).
+    Compare two data files and print differences.
     """
-    # --- Load raw data using your existing loaders ---
-    path = Path(filename)
 
+    p1 = _resolve_path(file1)
+    p2 = _resolve_path(file2)
+
+    click.echo(f"📂 File 1: {p1}")
+    click.echo(f"📂 File 2: {p2}")
+
+    df1 = _load_table(p1)
+    df2 = _load_table(p2)
+
+    # --- Shape differences ---
+    if df1.shape != df2.shape:
+        click.echo("❌ DataFrames differ in shape.")
+        click.echo(f" - File 1 shape: {df1.shape}")
+        click.echo(f" - File 2 shape: {df2.shape}")
+    else:
+        click.echo("✅ Shapes match.")
+
+    # --- Column differences ---
+    cols1 = list(df1.columns)
+    cols2 = list(df2.columns)
+
+    if cols1 != cols2:
+        click.echo("\n❌ Column sets / order differ:")
+        missing_1 = set(cols2) - set(cols1)
+        missing_2 = set(cols1) - set(cols2)
+
+        if missing_1:
+            click.echo(f" - Columns only in file2: {sorted(missing_1)}")
+        if missing_2:
+            click.echo(f" - Columns only in file1: {sorted(missing_2)}")
+
+        click.echo(f" - Column order file1: {cols1}")
+        click.echo(f" - Column order file2: {cols2}")
+
+    else:
+        click.echo("✅ Columns match.")
+
+    # Align common columns for deeper comparisons
+    common_cols = sorted(set(df1.columns) & set(df2.columns))
+    df1a = df1[common_cols]
+    df2a = df2[common_cols]
+
+    # --- Full DataFrame equality check ---
     try:
-        loader = get_loader_for(path)
-    except FileNotFoundError as e:
-        raise click.ClickException(str(e))
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    if isinstance(loader, SQLiteLoader):
-        if table is None:
-            # List tables in the SQLite file
-            try:
-                conn = sqlite3.connect(loader.path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                tables = [row[0] for row in cursor.fetchall()]
-            finally:
-                conn.close()
-
-            if not tables:
-                table_list = "(no tables found)"
-            else:
-                table_list = ", ".join(tables)
-
-            raise click.ClickException(
-                f"SQLite database detected, but no --table provided.\n"
-                f"Available tables: {table_list}\n"
-                f"Use: --table <table_name>"
-            )
-        loader.table = table
-
-    df_raw = loader.load()
-    click.echo(f"[load-clean] Loaded {loader.path} with {loader.__class__.__name__}, shape={df_raw.shape}")
-
-    # --- Import cleaning function dynamically ---
-    try:
-        # assumes a package 'cleaning' on your PYTHONPATH / installed package
-        module = importlib.import_module(f"cleaning.{cleaning_module}")
-    except ModuleNotFoundError as e:
-        raise click.ClickException(
-            f"Could not import module 'cleaning.{cleaning_module}'. "
-            f"Make sure 'src/cleaning/{cleaning_module}.py' exists and is importable."
-        ) from e
-
-    if not hasattr(module, "clean"):
-        raise click.ClickException(
-            f"Cleaning module 'cleaning.{cleaning_module}' must define a function 'clean(df)'."
+        tm.assert_frame_equal(
+            df1a,
+            df2a,
+            atol=1e-8,
+            rtol=1e-5,
+            check_dtype=False,
+            check_like=True,
         )
+        click.echo("\n🎉 DataFrames are identical (within tolerance).")
+        sys.exit(0)
 
-    clean_fn = getattr(module, "clean")
+    except AssertionError:
+        click.echo("\n❌ DataFrames differ in content.")
+    
+    # --- Deep diff ---
+    click.echo("\n🔍 Computing cell-level differences...")
 
-    # --- Apply cleaning ---
-    df_clean = clean_fn(df_raw)
-    if df_clean is None:
-        raise click.ClickException("Cleaning function returned None. It must return a pandas DataFrame.")
+    diff_mask = (df1a != df2a) & ~(df1a.isna() & df2a.isna())
+    total_diff = diff_mask.to_numpy().sum()
 
-    # --- Prepare output path (Feather) ---
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_name = f"{Path(filename).stem}_{cleaning_module}.feather"
-    out_path = out_dir / out_name
+    click.echo(f"Total differing cells: {total_diff}")
 
-    # --- Save as Feather ---
-    df_clean.to_feather(out_path)
-    click.echo(f"[load-clean] Saved cleaned data to {out_path} with shape {df_clean.shape}")
+    # Per-column summary
+    col_diff_counts = diff_mask.sum()
+    click.echo("\n📊 Differences per column:")
+    for col, count in col_diff_counts.items():
+        if count > 0:
+            click.echo(f" - {col}: {count} differing cells")
+
+    # Extract rows with differences
+    differing_rows = diff_mask.any(axis=1)
+    diff_indices = df1a.index[differing_rows]
+
+    click.echo(f"\n🔎 Showing up to {sample} differing rows:\n")
+
+    # Display sample rows
+    for i, idx in enumerate(diff_indices[:sample]):
+        click.echo(f"--- Row {idx} ---")
+        click.echo("File 1:")
+        click.echo(df1a.loc[idx].to_string())
+        click.echo("File 2:")
+        click.echo(df2a.loc[idx].to_string())
+        click.echo("")
+
+    click.echo("❗ Files differ.")
+    sys.exit(1)
