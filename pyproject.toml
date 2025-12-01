@@ -1,14 +1,13 @@
+# Root folder
 [project]
-name = "learncli"
+name = "AIAP22-CLI"
 version = "0.1"
 authors = [
-  {name = "Cato", email = "yangcymbus@outlook.com"},
+  {name = "Yang Peng", email = "yangcymbus@gamil.com"},
 ]
-description = "CLI for AI modeling"
-readme = "README.md"
-requires-python = ">=3.8"
 
-# Translates the install_requires=['Click'] from setup.py
+description = "CLI for AI Pipeline"
+requires-python = ">=3.8"
 dependencies = [
     "click",
 ]
@@ -17,4 +16,4 @@ dependencies = [
 package-dir = {"" = "src"}
 
 [project.scripts]
-aicli = "aicli:aicli"
+AI = "AI:AI"  

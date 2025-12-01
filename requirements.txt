@@ -1,8 +1,16 @@
-jupyterlab
-ipykernel
+# Core DS / ML libs
+numpy
 pandas
-seaborn
 matplotlib
-sqlalchemy
-rpy2
+seaborn
+scikit-learn
+xgboost
 pyarrow
+joblib
+scipy
+click
+
+# Jupyter / notebook
+jupyterlab
+notebook
+ipywidgets

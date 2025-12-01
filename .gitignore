@@ -1,8 +1,14 @@
-.venv/
-.ipynb_checkpoints/
+# Data sensitive and keys
+data/*
+.egg*
 
-# Pythone Bytecode cache from building CLI
+# Byte-compiled / optimized / DLL files
 __pycache__/
 
-# Packaging metadata
-*.egg-info/
+# Distribution / Packaging
+.venv/
+
+# Setuptools/Wheel metadata
+**/.egg-info/
+**src/AIAP22_CLI.egg-info/**
+**build/**
