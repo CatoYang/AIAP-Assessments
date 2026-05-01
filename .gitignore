@@ -1,5 +1,5 @@
 # Data sensitive and keys
-data/*
+#data/*
 .egg*
 
 # Byte-compiled / optimized / DLL files
